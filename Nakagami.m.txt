@@ -1,0 +1,130 @@
+% MATLAB Code for PAPR Reduction in Nakagami Channel with Separate PSK and QAM Plots
+
+% Parameters
+N = 128; % Number of subcarriers
+numSymbols = 1000; % Number of OFDM symbols
+oversamplingFactor = 4; % Oversampling factor
+mu = 255; % μ value for μ-law companding
+clipLevel = 0.8; % Clipping level
+numSubblocks = 4; % Number of subblocks for PTS
+PAPR_thresholds = 0:0.5:15; % PAPR thresholds for CCDF (dB)
+m = 2; % Nakagami shape parameter (fading severity)
+
+% Modulation Schemes
+M_PSK = 8; % Modulation order for PSK (e.g., 8-PSK)
+M_QAM = 16; % Modulation order for QAM (e.g., 16-QAM)
+
+% Generate Random Input Data
+data_PSK = randi([0 M_PSK-1], N, numSymbols);
+data_QAM = randi([0 M_QAM-1], N, numSymbols);
+
+% Modulate Data
+modulatedData_PSK = pskmod(data_PSK, M_PSK, pi/M_PSK);
+modulatedData_QAM = qammod(data_QAM, M_QAM, 'UnitAveragePower', true);
+
+% Define PAPR Calculation and CCDF Functions
+calculatePAPR = @(signal) max(abs(signal).^2) / mean(abs(signal).^2);
+calculateCCDF = @(PAPR_dB, thresholds) arrayfun(@(th) sum(PAPR_dB > th) / length(PAPR_dB), thresholds);
+
+% Nakagami Channel Model
+nakagamiChannel = zeros(N, numSymbols);
+for i = 1:numSymbols
+    % Sum of squared Rayleigh random variables
+    rayleighSamples = sqrt(1/2) * (randn(N, ceil(m)) + 1j * randn(N, ceil(m)));
+    powerSum = sum(abs(rayleighSamples).^2, 2); % Sum of squared amplitudes
+    nakagamiAmplitude = sqrt(powerSum / ceil(m)) * sqrt(m); % Normalize for mean power
+    nakagamiChannel(:, i) = nakagamiAmplitude .* exp(1j * 2 * pi * rand(N, 1)); % Add random phase
+end
+
+% Process Modulation Schemes
+modulationSchemes = {'PSK8', 'QAM16'};
+modulatedData = {modulatedData_PSK, modulatedData_QAM};
+CCDF_results = struct();
+
+for modType = 1:2
+    currentModData = modulatedData{modType};
+    modScheme = modulationSchemes{modType};
+    
+    % Original OFDM Signal
+    ofdmSignal = ifft(currentModData, N) * sqrt(N);
+    ofdmSignalNakagami = ofdmSignal .* nakagamiChannel; % Pass through Nakagami channel
+    ofdmSignalOversampled = kron(ofdmSignalNakagami, ones(oversamplingFactor, 1));
+    PAPR_original = arrayfun(@(i) calculatePAPR(ofdmSignalOversampled(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Original = calculateCCDF(10*log10(PAPR_original), PAPR_thresholds);
+
+    % Clipping and Filtering
+    clippedSignal = ofdmSignalNakagami;
+    clippedSignal(abs(clippedSignal) > clipLevel) = clipLevel * exp(1j * angle(clippedSignal(abs(clippedSignal) > clipLevel)));
+    clippedSignalOversampled = kron(clippedSignal, ones(oversamplingFactor, 1));
+    PAPR_clipped = arrayfun(@(i) calculatePAPR(clippedSignalOversampled(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Clipping = calculateCCDF(10*log10(PAPR_clipped), PAPR_thresholds);
+
+    % Partial Transmit Sequence (PTS)
+    subblockSize = N / numSubblocks;
+    PTS_PAPR = zeros(1, numSymbols);
+    for i = 1:numSymbols
+        subblocks = reshape(currentModData(:, i), subblockSize, numSubblocks);
+        minPAPR = inf;
+        for b = 0:(2^numSubblocks - 1)
+            phaseSeq = exp(1j * pi * (dec2bin(b, numSubblocks) - '0'));
+            combinedSignal = ifft(sum(subblocks .* phaseSeq, 2), N) * sqrt(N);
+            combinedSignalNakagami = combinedSignal .* nakagamiChannel(:, i);
+            combinedSignalOversampled = kron(combinedSignalNakagami, ones(oversamplingFactor, 1));
+            PAPR_combined = calculatePAPR(combinedSignalOversampled);
+            minPAPR = min(minPAPR, PAPR_combined);
+        end
+        PTS_PAPR(i) = minPAPR;
+    end
+    CCDF_results.(modScheme).PTS = calculateCCDF(10*log10(PTS_PAPR), PAPR_thresholds);
+
+    % μ-law Companding
+    compandedSignal_mu = sign(real(ofdmSignalNakagami)) .* ...
+        ((log(1 + mu * abs(real(ofdmSignalNakagami))) ./ log(1 + mu)) + ...
+        1j * sign(imag(ofdmSignalNakagami)) .* (log(1 + mu * abs(imag(ofdmSignalNakagami))) ./ log(1 + mu)));
+    compandedSignalOversampled_mu = kron(compandedSignal_mu, ones(oversamplingFactor, 1));
+    PAPR_companded_mu = arrayfun(@(i) calculatePAPR(compandedSignalOversampled_mu(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).MuLaw = calculateCCDF(10*log10(PAPR_companded_mu), PAPR_thresholds);
+    %Airy companding
+
+    signalPower = mean(abs(ofdmSignalRayleigh(:)).^2); % E[|X|^2]
+    airyDifferencePower = mean(abs(airyCompandingFactor(:)).^2); % E[|airy(0) - airy(alpha * |X|)|^2]
+    beta = sqrt(signalPower / airyDifferencePower); % Beta calculation
+    airySignal = ofdmSignalRayleigh;
+    airyInput = abs(airySignal) .* alpha; 
+    airyCompandingFactor = airy(0) - airy(airyInput);
+    airySignalCompanded = beta * sign(airySignal) .* airyCompandingFactor;
+    compandedSignalOversampled_airy = kron(airySignalCompanded, ones(oversamplingFactor, 1));
+    PAPR_companded_airy = arrayfun(@(i) calculatePAPR(compandedSignalOversampled_airy(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Airy = calculateCCDF(10*log10(PAPR_companded_airy), PAPR_thresholds);
+end
+
+% Plot CCDF for 8-PSK with Nakagami Channel
+figure();
+subplot(2,1,1);
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Original, '-o', 'DisplayName', 'Original', 'Color', 'b', 'MarkerFaceColor', 'b');
+hold on;
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Clipping, '-s', 'DisplayName', 'Clipping', 'Color', 'r', 'MarkerFaceColor', 'r');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.PTS, '-^', 'DisplayName', 'PTS', 'Color', 'g', 'MarkerFaceColor', 'g');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.MuLaw, '-x', 'DisplayName', 'Airy Companding', 'Color', 'c', 'MarkerFaceColor', 'c');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Airy, '-d', 'DisplayName', 'μ-law Companding', 'Color', 'm', 'MarkerFaceColor', 'm');
+xlabel('PAPR (dB)');
+ylabel('CCDF');
+title('PAPR Reduction Techniques for 8-PSK (Nakagami Channel)', 'FontWeight', 'bold');
+legend('Location', 'SouthWest');
+grid on;
+set(gca, 'GridLineStyle', '--');  % Dashed grid lines for better visibility
+
+% Plot CCDF for 16-QAM with Nakagami Channel
+subplot(2,1,2);
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Original, '-o', 'DisplayName', 'Original', 'Color', 'b', 'MarkerFaceColor', 'b');
+hold on;
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Clipping, '-s', 'DisplayName', 'Clipping', 'Color', 'r', 'MarkerFaceColor', 'r');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.PTS, '-^', 'DisplayName', 'PTS', 'Color', 'g', 'MarkerFaceColor', 'g');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.MuLaw, '-x', 'DisplayName', 'Airy Companding', 'Color', 'c', 'MarkerFaceColor', 'c');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Airy, '-d', 'DisplayName', 'μ-law Companding', 'Color', 'm', 'MarkerFaceColor', 'm');
+xlabel('PAPR_thresholds (dB)');
+ylabel('CCDF');
+title('PAPR Reduction Techniques for 16-QAM (Nakagami Channel)', 'FontWeight', 'bold');
+legend('Location', 'SouthWest');
+grid on;
+set(gca, 'GridLineStyle', '--');  % Dashed grid lines for better visibility

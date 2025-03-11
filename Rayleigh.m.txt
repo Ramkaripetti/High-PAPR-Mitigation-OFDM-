@@ -1,0 +1,127 @@
+% MATLAB Code for PAPR Reduction in Rayleigh Channel with Airy Companding
+
+% Parameters
+N = 128; % Number of subcarriers
+numSymbols = 1000; % Number of OFDM symbols
+oversamplingFactor = 4; % Oversampling factor
+mu = 255; % μ value for μ-law companding
+alpha = 2; % Alpha parameter for Airy companding
+clipLevel = 0.8; % Clipping level
+numSubblocks = 4; % Number of subblocks for PTS
+PAPR_thresholds = 0:0.5:15; % PAPR thresholds for CCDF (dB)
+
+% Modulation Schemes
+M_PSK = 8; % Modulation order for PSK (e.g., 8-PSK)
+M_QAM = 16; % Modulation order for QAM (e.g., 16-QAM)
+
+% Generate Random Input Data
+data_PSK = randi([0 M_PSK-1], N, numSymbols);
+data_QAM = randi([0 M_QAM-1], N, numSymbols);
+
+% Modulate Data
+modulatedData_PSK = pskmod(data_PSK, M_PSK, pi/M_PSK);
+modulatedData_QAM = qammod(data_QAM, M_QAM, 'UnitAveragePower', true);
+
+% Define PAPR Calculation and CCDF Functions
+calculatePAPR = @(signal) max(abs(signal).^2) / mean(abs(signal).^2);
+calculateCCDF = @(PAPR_dB, thresholds) arrayfun(@(th) sum(PAPR_dB > th) / length(PAPR_dB), thresholds);
+
+% Rayleigh Channel Model
+rayleighChannel = (randn(N, numSymbols) + 1j * randn(N, numSymbols)) / sqrt(2);
+
+% Process Modulation Schemes
+modulationSchemes = {'PSK8', 'QAM16'};
+modulatedData = {modulatedData_PSK, modulatedData_QAM};
+CCDF_results = struct();
+
+for modType = 1:2
+    currentModData = modulatedData{modType};
+    modScheme = modulationSchemes{modType};
+    
+    % Original OFDM Signal
+    ofdmSignal = ifft(currentModData, N) * sqrt(N);
+    ofdmSignalRayleigh = ofdmSignal .* rayleighChannel; % Pass through Rayleigh channel
+    ofdmSignalOversampled = kron(ofdmSignalRayleigh, ones(oversamplingFactor, 1));
+    PAPR_original = arrayfun(@(i) calculatePAPR(ofdmSignalOversampled(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Original = calculateCCDF(10*log10(PAPR_original), PAPR_thresholds);
+
+    % Clipping and Filtering
+    clippedSignal = ofdmSignalRayleigh;
+    clippedSignal(abs(clippedSignal) > clipLevel) = clipLevel * exp(1j * angle(clippedSignal(abs(clippedSignal) > clipLevel)));
+    clippedSignalOversampled = kron(clippedSignal, ones(oversamplingFactor, 1));
+    PAPR_clipped = arrayfun(@(i) calculatePAPR(clippedSignalOversampled(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Clipping = calculateCCDF(10*log10(PAPR_clipped), PAPR_thresholds);
+
+    % Partial Transmit Sequence (PTS)
+    subblockSize = N / numSubblocks;
+    PTS_PAPR = zeros(1, numSymbols);
+    for i = 1:numSymbols
+        subblocks = reshape(currentModData(:, i), subblockSize, numSubblocks);
+        minPAPR = inf;
+        for b = 0:(2^numSubblocks - 1)
+            phaseSeq = exp(1j * pi * (dec2bin(b, numSubblocks) - '0'));
+            combinedSignal = ifft(sum(subblocks .* phaseSeq, 2), N) * sqrt(N);
+            combinedSignalRayleigh = combinedSignal .* rayleighChannel(:, i);
+            combinedSignalOversampled = kron(combinedSignalRayleigh, ones(oversamplingFactor, 1));
+            PAPR_combined = calculatePAPR(combinedSignalOversampled);
+            minPAPR = min(minPAPR, PAPR_combined);
+        end
+        PTS_PAPR(i) = minPAPR;
+    end
+    CCDF_results.(modScheme).PTS = calculateCCDF(10*log10(PTS_PAPR), PAPR_thresholds);
+
+    % μ-law Companding
+    compandedSignal_mu = sign(real(ofdmSignalRayleigh)) .* ...
+        ((log(1 + mu * abs(real(ofdmSignalRayleigh))) ./ log(1 + mu)) + ...
+        1j * sign(imag(ofdmSignalRayleigh)) .* (log(1 + mu * abs(imag(ofdmSignalRayleigh))) ./ log(1 + mu)));
+    compandedSignalOversampled_mu = kron(compandedSignal_mu, ones(oversamplingFactor, 1));
+    PAPR_companded_mu = arrayfun(@(i) calculatePAPR(compandedSignalOversampled_mu(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).MuLaw = calculateCCDF(10*log10(PAPR_companded_mu), PAPR_thresholds);
+
+    % Airy Function Companding
+    signalPower = mean(abs(ofdmSignalRayleigh(:)).^2); % E[|X|^2]
+    airyDifferencePower = mean(abs(airyCompandingFactor(:)).^2); % E[|airy(0) - airy(alpha * |X|)|^2]
+    beta = sqrt(signalPower / airyDifferencePower); % Beta calculation
+    airySignal = ofdmSignalRayleigh;
+    airyInput = abs(airySignal) .* alpha; 
+    airyCompandingFactor = airy(0) - airy(airyInput);
+    airySignalCompanded = beta * sign(airySignal) .* airyCompandingFactor;
+    compandedSignalOversampled_airy = kron(airySignalCompanded, ones(oversamplingFactor, 1));
+    PAPR_companded_airy = arrayfun(@(i) calculatePAPR(compandedSignalOversampled_airy(:, i)), 1:numSymbols);
+    CCDF_results.(modScheme).Airy = calculateCCDF(10*log10(PAPR_companded_airy), PAPR_thresholds);
+end
+
+% Visualization
+figure('Position', [100, 100, 600, 800]); % Adjust the figure size
+
+% Plot CCDF for 8-PSK
+subplot(2,1,1);
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Original, '-o', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'b', 'DisplayName', 'Original');
+hold on;
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Clipping, '-s', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'r', 'DisplayName', 'Clipping');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.PTS, '-^', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'g', 'DisplayName', 'PTS');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.MuLaw, '-x', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'm', 'DisplayName', 'μ-law Companding');
+semilogy(PAPR_thresholds, CCDF_results.PSK8.Airy, '-d', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'c', 'DisplayName', 'Airy Companding');
+xlabel('PAPR (dB)', 'FontSize', 12);
+ylabel('CCDF', 'FontSize', 12);
+title('PAPR Reduction Techniques for 8-PSK (Rayleigh Channel)', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'SouthWest', 'FontSize', 10, 'Box', 'off', 'FontWeight', 'bold');
+grid on;
+grid minor;
+set(gca, 'FontSize', 12);
+
+% Repeat for QAM similar to the original visualization script
+subplot(2,1,2);
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Original, '-o', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'b', 'DisplayName', 'Original');
+hold on;
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Clipping, '-s', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'r', 'DisplayName', 'Clipping');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.PTS, '-^', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'g', 'DisplayName', 'PTS');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.MuLaw, '-x', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'm', 'DisplayName', 'μ-law Companding');
+semilogy(PAPR_thresholds, CCDF_results.QAM16.Airy, '-d', 'LineWidth', 2, 'MarkerSize', 6, 'Color', 'c', 'DisplayName', 'Airy Companding');
+xlabel('PAPR_thresholds (dB)', 'FontSize', 12);
+ylabel('CCDF', 'FontSize', 12);
+title('PAPR Reduction Techniques for 16-QAM (Rayleigh Channel)', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'SouthWest', 'FontSize', 10, 'Box', 'off', 'FontWeight', 'bold');
+grid on;
+grid minor;
+set(gca, 'FontSize', 12);

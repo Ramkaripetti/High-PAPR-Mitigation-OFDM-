@@ -13,11 +13,11 @@ In this work, various high PAPR reduction techniques were evaluated under differ
 Key findings from the study include:
 
 ![Rayleigh](https://github.com/user-attachments/assets/3682b91d-d59c-496a-b0bd-231ac0c20b1c)
-##Fig1: Under Rayleigh Channel Fading , CCDF vs PAPR_thresholds
+## Fig1: Under Rayleigh Channel Fading , CCDF vs PAPR_thresholds
 ![Rician](https://github.com/user-attachments/assets/56271657-0f12-4a45-bcd0-a69a1d4c0014)
-##Fig2: Under Rician Channel Fading , CCDF vs PAPR_thresholds
+## Fig2: Under Rician Channel Fading , CCDF vs PAPR_thresholds
 ![Nakagami](https://github.com/user-attachments/assets/853d737b-c2c9-4a6c-87df-3f552fefae94)
-##Fig3: Under Nakagami Channel Fading , CCDF vs PAPR_thresholds
+## Fig3: Under Nakagami Channel Fading , CCDF vs PAPR_thresholds
 
 ##Conclusion
 

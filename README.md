@@ -12,17 +12,20 @@ In this work, various high PAPR reduction techniques were evaluated under differ
 
 Key findings from the study include:
 
+### Fig1: Under Rayleigh Channel Fading , CCDF vs PAPR_thresholds
 ![Rayleigh](https://github.com/user-attachments/assets/3682b91d-d59c-496a-b0bd-231ac0c20b1c)
-## Fig1: Under Rayleigh Channel Fading , CCDF vs PAPR_thresholds
+### Fig2: Under Rician Channel Fading , CCDF vs PAPR_thresholds
 ![Rician](https://github.com/user-attachments/assets/56271657-0f12-4a45-bcd0-a69a1d4c0014)
-## Fig2: Under Rician Channel Fading , CCDF vs PAPR_thresholds
+### Fig3: Under Nakagami Channel Fading , CCDF vs PAPR_thresholds
 ![Nakagami](https://github.com/user-attachments/assets/853d737b-c2c9-4a6c-87df-3f552fefae94)
-## Fig3: Under Nakagami Channel Fading , CCDF vs PAPR_thresholds
 
-##Conclusion
+
+## Conclusion
 
 1.8-PSK performed better than 16-QAM}: The results showed that 8-PSK modulation provided better PAPR reduction compared to 16-QAM under all fading conditions. This is primarily because 8-PSK has a lower constellation size, which reduces the amplitude variations, leading to lower PAPR.
+
 2.The Nakagami fading channel, especially with moderate values of the Nakagami parameter \(m > 1\), provided the most favorable environment for PAPR reduction techniques. It balanced signal stability and fading, allowing techniques like clipping, PTS, and companding to perform effectively with minimal distortion.
+
 3.Among the evaluated techniques, Clipping followed by Airy Companding performed the best overall in terms of reducing PAPR. Clipping was particularly effective, but it is not suitable for very high PAPR values due to the introduced distortion. Airy Companding showed promising results in maintaining signal quality while reducing peaks, making it a viable option in high PAPR environments.
 
 In conclusion, this work highlights the importance of selecting the appropriate modulation scheme, fading channel model, and PAPR reduction technique for improving the efficiency of communication systems. The Nakagami fading channel with moderate fading conditions and 8-PSK modulation provide the most reliable performance, while Clipping and Airy Companding offer effective PAPR reduction strategies, with careful consideration needed for high PAPR scenarios.
